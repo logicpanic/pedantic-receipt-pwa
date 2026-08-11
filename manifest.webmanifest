@@ -1,0 +1,11 @@
+{
+  "name": "pedantic レシート",
+  "short_name": "レシート",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#1a1d21",
+  "theme_color": "#1a1d21",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

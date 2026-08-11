@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1a1d21">
+<title>pedantic レシート</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.svg">
+<style>
+  /* 最小フォント14px（DESIGN.base.md §1 準拠） */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    background: #1a1d21; color: #e8eaed; min-height: 100dvh;
+    display: flex; flex-direction: column;
+    padding: max(env(safe-area-inset-top), 16px) 16px calc(env(safe-area-inset-bottom) + 16px);
+  }
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  h1 { font-size: 18px; font-weight: 600; }
+  #settingsBtn { background: none; border: 1px solid #444; color: #aaa; border-radius: 8px; padding: 6px 12px; font-size: 14px; }
+  #shutter {
+    display: block; width: 100%; padding: 28px 16px; margin: 8px 0 16px;
+    font-size: 20px; font-weight: 700; color: #1a1d21;
+    background: #4cc38a; border: none; border-radius: 16px;
+  }
+  #shutter:disabled { background: #3a3f45; color: #777; }
+  #shutter:active { transform: scale(0.98); }
+  .hint { font-size: 14px; color: #9aa0a6; margin-bottom: 12px; }
+  #log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+  .item {
+    display: flex; align-items: center; gap: 10px;
+    background: #24282d; border-radius: 10px; padding: 10px 12px; font-size: 14px;
+  }
+  .item img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+  .item .st { margin-left: auto; flex-shrink: 0; font-size: 14px; }
+  .item.err .st { color: #f28b82; }
+  .item.ok .st { color: #4cc38a; }
+  .item button { background: #3a3f45; color: #e8eaed; border: none; border-radius: 6px; padding: 6px 10px; font-size: 14px; }
+  dialog {
+    background: #24282d; color: #e8eaed; border: 1px solid #444; border-radius: 12px;
+    padding: 20px; width: min(92vw, 420px); margin: auto;
+  }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  dialog label { display: block; font-size: 14px; color: #9aa0a6; margin: 12px 0 4px; }
+  dialog input {
+    width: 100%; padding: 10px; font-size: 16px; border-radius: 8px;
+    border: 1px solid #444; background: #1a1d21; color: #e8eaed;
+  }
+  dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  dialog button { padding: 10px 16px; font-size: 14px; border-radius: 8px; border: none; }
+  #saveBtn { background: #4cc38a; color: #1a1d21; font-weight: 600; }
+  #cancelBtn { background: #3a3f45; color: #e8eaed; }
+  .note { font-size: 14px; color: #9aa0a6; margin-top: 10px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<header>
+  <h1>pedantic レシート</h1>
+  <button id="settingsBtn" type="button">設定</button>
+</header>
+
+<button id="shutter" type="button">📷 レシートを撮る</button>
+<p class="hint">撮ると自動でDiscordに送られ、botがfreeeファイルボックスへ登録します。連続で何枚でもどうぞ。<br>💡 レシートとクレカ明細の2枚セットは、<b>並べて1枚に収めて</b>撮ってください（明細のカード下4桁で法人/個人を自動判定します）。</p>
+<input id="camera" type="file" accept="image/*" capture="environment" multiple hidden>
+
+<div id="log"></div>
+
+<dialog id="settings">
+  <h2 style="font-size:16px">初期設定</h2>
+  <label for="whUrl">Discord Webhook URL</label>
+  <input id="whUrl" type="url" placeholder="https://discord.com/api/webhooks/…" autocomplete="off">
+  <label for="userName">名前（Discordに表示されます）</label>
+  <input id="userName" type="text" placeholder="例: 堀元" autocomplete="off">
+  <p class="note">設定はこの端末にだけ保存されます。共有された「設定済みリンク」を開いた場合、Webhook URLは自動入力されています。</p>
+  <div class="row">
+    <button id="cancelBtn" type="button">閉じる</button>
+    <button id="saveBtn" type="button">保存</button>
+  </div>
+</dialog>
+
+<script>
+(() => {
+  'use strict';
+  const LS_WH = 'receipt_webhook_url';
+  const LS_NAME = 'receipt_user_name';
+  const shutter = document.getElementById('shutter');
+  const camera = document.getElementById('camera');
+  const log = document.getElementById('log');
+  const dlg = document.getElementById('settings');
+  const whUrl = document.getElementById('whUrl');
+  const userName = document.getElementById('userName');
+
+  // 共有リンクの #フラグメントでWebhook URLを受け取る（サーバーに送信されない・履歴に残さず即消去）
+  if (location.hash.startsWith('#https://discord.com/api/webhooks/')) {
+    localStorage.setItem(LS_WH, location.hash.slice(1));
+    history.replaceState(null, '', location.pathname);
+  }
+
+  const getWebhook = () => localStorage.getItem(LS_WH) || '';
+  const getName = () => localStorage.getItem(LS_NAME) || '';
+
+  function openSettings() {
+    whUrl.value = getWebhook();
+    userName.value = getName();
+    dlg.showModal();
+  }
+  document.getElementById('settingsBtn').onclick = openSettings;
+  document.getElementById('cancelBtn').onclick = () => dlg.close();
+  document.getElementById('saveBtn').onclick = () => {
+    const u = whUrl.value.trim();
+    if (u && !u.startsWith('https://discord.com/api/webhooks/')) {
+      alert('Webhook URLの形式が正しくありません');
+      return;
+    }
+    if (u) localStorage.setItem(LS_WH, u);
+    localStorage.setItem(LS_NAME, userName.value.trim());
+    dlg.close();
+    refresh();
+  };
+
+  function refresh() {
+    const ready = Boolean(getWebhook());
+    shutter.disabled = !ready;
+    shutter.textContent = ready ? '📷 レシートを撮る' : '設定が必要です（右上の「設定」から）';
+  }
+
+  shutter.onclick = () => camera.click();
+  camera.onchange = async () => {
+    const files = [...camera.files];
+    camera.value = '';
+    for (const f of files) addItem(f);
+  };
+
+  // 長辺2000px・JPEG品質0.85 に圧縮（OCR可読性を保ちつつ転送量を落とす）。
+  // 変換できない形式（HEIC等でデコード不可）は原本のまま送る。
+  async function compress(file) {
+    try {
+      const bmp = await createImageBitmap(file);
+      const scale = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+      const w = Math.round(bmp.width * scale);
+      const h = Math.round(bmp.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(bmp, 0, 0, w, h);
+      bmp.close();
+      const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.85));
+      if (!blob) throw new Error('toBlob null');
+      return { blob, name: file.name.replace(/\.[^.]+$/, '') + '.jpg' };
+    } catch {
+      return { blob: file, name: file.name };
+    }
+  }
+
+  async function upload(blob, name) {
+    const fd = new FormData();
+    const uname = getName();
+    fd.append('payload_json', JSON.stringify({
+      username: uname ? `${uname}（レシートPWA）` : 'レシートPWA',
+      allowed_mentions: { parse: [] },
+    }));
+    fd.append('files[0]', blob, name);
+    const res = await fetch(getWebhook(), { method: 'POST', body: fd });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  }
+
+  function addItem(file) {
+    const el = document.createElement('div');
+    el.className = 'item';
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(file);
+    const label = document.createElement('span');
+    label.textContent = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+    const st = document.createElement('span');
+    st.className = 'st';
+    el.append(img, label, st);
+    log.prepend(el);
+
+    const run = async () => {
+      el.className = 'item';
+      st.textContent = '送信中…';
+      try {
+        const { blob, name } = await compress(file);
+        await upload(blob, name);
+        el.className = 'item ok';
+        st.textContent = '✅ 送信済み';
+      } catch (e) {
+        el.className = 'item err';
+        st.textContent = '';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = `失敗（${e.message}）再送`;
+        btn.onclick = () => { btn.remove(); run(); };
+        st.append(btn);
+      }
+    };
+    run();
+  }
+
+  if (!getWebhook()) openSettings();
+  refresh();
+
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+})();
+</script>
+</body>
+</html>
