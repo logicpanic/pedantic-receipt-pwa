@@ -14,7 +14,7 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// Discordへの送信（POST）は素通し。シェルはネット優先・失敗時キャッシュ
+// 送信（POST）は素通し。シェルはネット優先・失敗時キャッシュ
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));

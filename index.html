@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1a1d21">
-<title>pedantic レシート</title>
+<!-- 公開ホスティング（GitHub Pages）に置くため、社名・利用サービス名は書かない。
+     内部向けの説明は receipt/HANDOFF.md にある。 -->
+<title>レシート送信</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon.svg">
 <style>
@@ -57,23 +59,23 @@
 </head>
 <body>
 <header>
-  <h1>pedantic レシート</h1>
+  <h1>レシート送信</h1>
   <button id="settingsBtn" type="button">設定</button>
 </header>
 
 <button id="shutter" type="button">📷 レシートを撮る</button>
-<p class="hint">撮ると自動でDiscordに送られ、botがfreeeファイルボックスへ登録します。連続で何枚でもどうぞ。<br>💡 レシートとクレカ明細の2枚セットは、<b>並べて1枚に収めて</b>撮ってください（明細のカード下4桁で法人/個人を自動判定します）。</p>
+<p class="hint">撮ると自動で送信され、経理の処理に回ります。連続で何枚でもどうぞ。<br>💡 レシートとカード利用明細の2枚セットは、<b>並べて1枚に収めて</b>撮ってください（明細のカード下4桁で法人/個人を自動判定します）。</p>
 <input id="camera" type="file" accept="image/*" capture="environment" multiple hidden>
 
 <div id="log"></div>
 
 <dialog id="settings">
   <h2 style="font-size:16px">初期設定</h2>
-  <label for="whUrl">Discord Webhook URL</label>
-  <input id="whUrl" type="url" placeholder="https://discord.com/api/webhooks/…" autocomplete="off">
-  <label for="userName">名前（Discordに表示されます）</label>
-  <input id="userName" type="text" placeholder="例: 堀元" autocomplete="off">
-  <p class="note">設定はこの端末にだけ保存されます。共有された「設定済みリンク」を開いた場合、Webhook URLは自動入力されています。</p>
+  <label for="whUrl">送信先URL</label>
+  <input id="whUrl" type="url" placeholder="https://…" autocomplete="off">
+  <label for="userName">名前（送信時に表示されます）</label>
+  <input id="userName" type="text" placeholder="例: 山田" autocomplete="off">
+  <p class="note">設定はこの端末にだけ保存されます。共有された「設定済みリンク」を開いた場合、送信先URLは自動入力されています。</p>
   <div class="row">
     <button id="cancelBtn" type="button">閉じる</button>
     <button id="saveBtn" type="button">保存</button>
@@ -92,8 +94,8 @@
   const whUrl = document.getElementById('whUrl');
   const userName = document.getElementById('userName');
 
-  // 共有リンクの #フラグメントでWebhook URLを受け取る（サーバーに送信されない・履歴に残さず即消去）
-  if (location.hash.startsWith('#https://discord.com/api/webhooks/')) {
+  // 共有リンクの #フラグメントで送信先URLを受け取る（サーバーに送信されない・履歴に残さず即消去）
+  if (location.hash.startsWith('#https://')) {
     localStorage.setItem(LS_WH, location.hash.slice(1));
     history.replaceState(null, '', location.pathname);
   }
@@ -110,8 +112,8 @@
   document.getElementById('cancelBtn').onclick = () => dlg.close();
   document.getElementById('saveBtn').onclick = () => {
     const u = whUrl.value.trim();
-    if (u && !u.startsWith('https://discord.com/api/webhooks/')) {
-      alert('Webhook URLの形式が正しくありません');
+    if (u && !u.startsWith('https://')) {
+      alert('送信先URLの形式が正しくありません');
       return;
     }
     if (u) localStorage.setItem(LS_WH, u);
