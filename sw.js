@@ -1,6 +1,6 @@
 // 最小のService Worker（PWAインストール要件を満たすためのシェルキャッシュのみ。
 // アップロード自体はオンライン必須＝オフラインキューは持たない）
-const CACHE = 'receipt-pwa-v3';
+const CACHE = 'receipt-pwa-v4';
 const SHELL = ['.', 'index.html', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', (e) => {
