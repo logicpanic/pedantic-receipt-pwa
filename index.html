@@ -64,7 +64,6 @@
 </header>
 
 <button id="shutter" type="button">📷 レシートを撮る</button>
-<p class="hint" id="destInfo"></p>
 <p class="hint">撮ると自動で送信され、経理の処理に回ります。連続で何枚でもどうぞ。<br>💡 レシートとカード利用明細の2枚セットは、<b>並べて1枚に収めて</b>撮ってください（明細のカード下4桁で法人/個人を自動判定します）。</p>
 <input id="camera" type="file" accept="image/*" capture="environment" multiple hidden>
 
@@ -72,11 +71,14 @@
 
 <dialog id="settings">
   <h2 style="font-size:16px">初期設定</h2>
-  <label for="whUrl">送信先URL</label>
-  <input id="whUrl" type="url" placeholder="https://…" autocomplete="off">
+  <label for="whUrl">送信先URL（共有された「設定済みリンク」を丸ごと貼り付けでもOK）</label>
+  <div style="display:flex; gap:8px">
+    <input id="whUrl" type="url" placeholder="https://…" autocomplete="off" style="flex:1">
+    <button id="pasteBtn" type="button" style="background:#3a3f45;color:#e8eaed;flex-shrink:0">📋 貼り付け</button>
+  </div>
   <label for="userName">名前（送信時に表示されます）</label>
   <input id="userName" type="text" placeholder="例: 山田" autocomplete="off">
-  <p class="note">設定はこの端末にだけ保存されます。共有された「設定済みリンク」を開いた場合、送信先URLは自動入力されています。</p>
+  <p class="note">設定はこの端末にだけ保存されます。ホーム画面に追加したアプリはブラウザと設定が別なので、初回だけ設定済みリンクの貼り付けが必要です（📋ボタンでコピー中のリンクをそのまま貼れます）。</p>
   <div class="row">
     <button id="cancelBtn" type="button">閉じる</button>
     <button id="saveBtn" type="button">保存</button>
@@ -94,13 +96,9 @@
   const dlg = document.getElementById('settings');
   const whUrl = document.getElementById('whUrl');
   const userName = document.getElementById('userName');
-  const destInfo = document.getElementById('destInfo');
-
-  // 送信先URLは既知ドメインの Webhook に限定する（任意ドメインへの差し替えを防ぐ）
-  const isAllowedDest = (u) => u.startsWith('https://discord.com/api/webhooks/');
 
   // 共有リンクの #フラグメントで送信先URLを受け取る（サーバーに送信されない・履歴に残さず即消去）
-  if (location.hash.startsWith('#') && isAllowedDest(location.hash.slice(1))) {
+  if (location.hash.startsWith('#https://')) {
     localStorage.setItem(LS_WH, location.hash.slice(1));
     history.replaceState(null, '', location.pathname);
   }
@@ -115,9 +113,28 @@
   }
   document.getElementById('settingsBtn').onclick = openSettings;
   document.getElementById('cancelBtn').onclick = () => dlg.close();
+
+  // 「設定済みリンク（…/#https://送信先）」を丸ごと貼っても、送信先URLだけを取り出す。
+  // ホーム画面アプリはブラウザと localStorage が別＝リンクを開いた設定が引き継がれないため、
+  // 初回起動での貼り付けを最短にする（何を貼ってもここで正規化する）
+  function normalizeWebhookInput(raw) {
+    const t = String(raw ?? '').trim();
+    const hashAt = t.indexOf('#https://');
+    if (hashAt >= 0) return t.slice(hashAt + 1);
+    return t;
+  }
+
+  document.getElementById('pasteBtn').onclick = async () => {
+    try {
+      whUrl.value = normalizeWebhookInput(await navigator.clipboard.readText());
+    } catch {
+      alert('貼り付けできませんでした。入力欄を長押しして「ペースト」してください');
+    }
+  };
+
   document.getElementById('saveBtn').onclick = () => {
-    const u = whUrl.value.trim();
-    if (u && !isAllowedDest(u)) {
+    const u = normalizeWebhookInput(whUrl.value);
+    if (u && !u.startsWith('https://')) {
       alert('送信先URLの形式が正しくありません');
       return;
     }
@@ -128,14 +145,9 @@
   };
 
   function refresh() {
-    const wh = getWebhook();
-    const ready = Boolean(wh);
+    const ready = Boolean(getWebhook());
     shutter.disabled = !ready;
     shutter.textContent = ready ? '📷 レシートを撮る' : '設定が必要です（右上の「設定」から）';
-    // 送信先の意図しない書き換えに気付けるよう、設定済みホストを常時表示する
-    let host = '';
-    try { host = wh ? new URL(wh).host : ''; } catch { host = ''; }
-    destInfo.textContent = host ? `送信先: ${host}` : '';
   }
 
   shutter.onclick = () => camera.click();
