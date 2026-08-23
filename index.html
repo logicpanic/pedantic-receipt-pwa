@@ -55,6 +55,27 @@
   #saveBtn { background: #4cc38a; color: #1a1d21; font-weight: 600; }
   #cancelBtn { background: #3a3f45; color: #e8eaed; }
   .note { font-size: 14px; color: #9aa0a6; margin-top: 10px; line-height: 1.5; }
+  /* 連写モード（アプリ内カメラ）: シャッター1タップ＝撮影＋即送信 */
+  #cam { position: fixed; inset: 0; background: #000; z-index: 10; display: flex; flex-direction: column; }
+  #cam[hidden] { display: none; }
+  #video { flex: 1; width: 100%; object-fit: cover; min-height: 0; }
+  #camStatus {
+    position: absolute; top: max(env(safe-area-inset-top), 12px); left: 12px; right: 88px;
+    font-size: 14px; color: #fff; background: rgba(0,0,0,.55); border-radius: 8px; padding: 8px 10px;
+  }
+  #closeCam {
+    position: absolute; top: max(env(safe-area-inset-top), 12px); right: 12px;
+    background: rgba(0,0,0,.55); color: #fff; border: 1px solid #666; border-radius: 8px;
+    padding: 8px 12px; font-size: 14px;
+  }
+  #camBar { position: absolute; bottom: 0; left: 0; right: 0; display: flex; justify-content: center;
+    padding: 16px 0 calc(env(safe-area-inset-bottom) + 20px); }
+  #capture {
+    width: 84px; height: 84px; border-radius: 50%; border: 5px solid #fff;
+    background: rgba(255,255,255,.25); font-size: 14px; color: transparent;
+  }
+  #capture:active { background: #fff; }
+  #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 11; transition: opacity .18s; }
 </style>
 </head>
 <body>
@@ -63,11 +84,19 @@
   <button id="settingsBtn" type="button">設定</button>
 </header>
 
-<button id="shutter" type="button">📷 レシートを撮る</button>
-<p class="hint">撮ると自動で送信され、経理の処理に回ります。連続で何枚でもどうぞ。<br>💡 レシートとカード利用明細の2枚セットは、<b>並べて1枚に収めて</b>撮ってください（明細のカード下4桁で法人/個人を自動判定します）。</p>
+<button id="shutter" type="button">📷 連写モードで撮る</button>
+<p class="hint">シャッター1タップで撮影＋送信。カメラは開いたままなので、そのまま次のレシートへどうぞ。<br>💡 レシートとカード利用明細の2枚セットは、<b>並べて1枚に収めて</b>撮ってください（明細のカード下4桁で法人/個人を自動判定します）。<br><a href="#" id="fallbackLink" style="color:#9aa0a6">標準カメラで1枚ずつ撮る</a></p>
 <input id="camera" type="file" accept="image/*" capture="environment" multiple hidden>
 
 <div id="log"></div>
+
+<div id="cam" hidden>
+  <video id="video" autoplay playsinline muted></video>
+  <p id="camStatus">シャッターを押すと撮影＋送信されます</p>
+  <button id="closeCam" type="button">✕ 終了</button>
+  <div id="camBar"><button id="capture" type="button">撮影</button></div>
+</div>
+<div id="flash"></div>
 
 <dialog id="settings">
   <h2 style="font-size:16px">初期設定</h2>
@@ -147,10 +176,68 @@
   function refresh() {
     const ready = Boolean(getWebhook());
     shutter.disabled = !ready;
-    shutter.textContent = ready ? '📷 レシートを撮る' : '設定が必要です（右上の「設定」から）';
+    shutter.textContent = ready ? '📷 連写モードで撮る' : '設定が必要です（右上の「設定」から）';
   }
 
-  shutter.onclick = () => camera.click();
+  // ---- 連写モード（アプリ内カメラ） ------------------------------------------
+  // 標準カメラ（file input + capture）はiOSだと「シャッター→Use Photo→戻る」の3タップ必要で
+  // 連続撮影がだるい。getUserMedia のライブビューを開きっぱなしにして、1タップ＝撮影＋即送信にする。
+  const cam = document.getElementById('cam');
+  const video = document.getElementById('video');
+  const camStatus = document.getElementById('camStatus');
+  const flash = document.getElementById('flash');
+  let stream = null;
+  let shotCount = 0;
+
+  async function openCam() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 4096 }, height: { ideal: 4096 } },
+        audio: false,
+      });
+    } catch {
+      // 起動不可（権限拒否・非対応）は標準カメラにフォールバック
+      alert('カメラを起動できなかったので、標準カメラで撮影します');
+      camera.click();
+      return;
+    }
+    video.srcObject = stream;
+    shotCount = 0;
+    camStatus.textContent = 'シャッターを押すと撮影＋送信されます';
+    cam.hidden = false;
+  }
+
+  function closeCam() {
+    if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+    video.srcObject = null;
+    cam.hidden = true;
+  }
+
+  function updateCamStatus() {
+    if (cam.hidden) return;
+    const latest = log.querySelector('.item .st');
+    camStatus.textContent = `${shotCount}枚撮影${latest?.textContent ? `／最新: ${latest.textContent}` : ''}`;
+  }
+
+  document.getElementById('capture').onclick = () => {
+    const w = video.videoWidth, h = video.videoHeight;
+    if (!w || !h) return;
+    flash.style.opacity = '0.7';
+    setTimeout(() => { flash.style.opacity = '0'; }, 120);
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    canvas.toBlob((blob) => {
+      if (!blob) { camStatus.textContent = '⚠️ 撮影に失敗しました（もう一度）'; return; }
+      shotCount++;
+      addItem(new File([blob], `receipt-${Date.now()}.jpg`, { type: 'image/jpeg' }));
+      updateCamStatus();
+    }, 'image/jpeg', 0.92);
+  };
+  document.getElementById('closeCam').onclick = closeCam;
+
+  shutter.onclick = openCam;
+  document.getElementById('fallbackLink').onclick = (e) => { e.preventDefault(); camera.click(); };
   camera.onchange = async () => {
     const files = [...camera.files];
     camera.value = '';
@@ -209,6 +296,7 @@
         await upload(blob, name);
         el.className = 'item ok';
         st.textContent = '✅ 送信済み';
+        updateCamStatus();
       } catch (e) {
         el.className = 'item err';
         st.textContent = '';
@@ -217,6 +305,7 @@
         btn.textContent = `失敗（${e.message}）再送`;
         btn.onclick = () => { btn.remove(); run(); };
         st.append(btn);
+        if (!cam.hidden) camStatus.textContent = `${shotCount}枚撮影／⚠️ 送信失敗あり（終了後に一覧から再送できます）`;
       }
     };
     run();
