@@ -91,6 +91,7 @@
 </header>
 
 <button id="shutter" type="button">📷 連写モードで撮る</button>
+<p class="hint" id="destInfo"></p>
 <p class="hint">シャッター1タップで撮影＋送信。カメラは開いたままなので、そのまま次のレシートへどうぞ。<br>💡 レシートとカード利用明細の2枚セットは、<b>並べて1枚に収めて</b>撮ってください（明細のカード下4桁で法人/個人を自動判定します）。<br><a href="#" id="fallbackLink" style="color:#9aa0a6">標準カメラで1枚ずつ撮る</a></p>
 <input id="camera" type="file" accept="image/*" capture="environment" multiple hidden>
 
@@ -132,9 +133,13 @@
   const dlg = document.getElementById('settings');
   const whUrl = document.getElementById('whUrl');
   const userName = document.getElementById('userName');
+  const destInfo = document.getElementById('destInfo');
+
+  // 送信先URLは既知ドメインの Webhook に限定する（任意ドメインへの差し替えを防ぐ）
+  const isAllowedDest = (u) => u.startsWith('https://discord.com/api/webhooks/');
 
   // 共有リンクの #フラグメントで送信先URLを受け取る（サーバーに送信されない・履歴に残さず即消去）
-  if (location.hash.startsWith('#https://')) {
+  if (location.hash.startsWith('#') && isAllowedDest(location.hash.slice(1))) {
     localStorage.setItem(LS_WH, location.hash.slice(1));
     history.replaceState(null, '', location.pathname);
   }
@@ -170,7 +175,7 @@
 
   document.getElementById('saveBtn').onclick = () => {
     const u = normalizeWebhookInput(whUrl.value);
-    if (u && !u.startsWith('https://')) {
+    if (u && !isAllowedDest(u)) {
       alert('送信先URLの形式が正しくありません');
       return;
     }
@@ -181,9 +186,14 @@
   };
 
   function refresh() {
-    const ready = Boolean(getWebhook());
+    const wh = getWebhook();
+    const ready = Boolean(wh);
     shutter.disabled = !ready;
     shutter.textContent = ready ? '📷 連写モードで撮る' : '設定が必要です（右上の「設定」から）';
+    // 送信先の意図しない書き換えに気付けるよう、設定済みホストを常時表示する
+    let host = '';
+    try { host = wh ? new URL(wh).host : ''; } catch { host = ''; }
+    destInfo.textContent = host ? `送信先: ${host}` : '';
   }
 
   // ---- 連写モード（アプリ内カメラ） ------------------------------------------
